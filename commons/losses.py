@@ -32,6 +32,205 @@ def compute_body_intersection_loss(model_ligand_coors_deform, bound_receptor_rep
                            min=0))
     return loss
 
+def pairwise_distances(receptor_coords: torch.tensor, ligand_coords: torch.tensor) -> torch.tensor:
+    """Returns matrix of pairwise Euclidean distances.
+    Parameters
+    ----------
+    coords1: torch.tensor
+        A torch tensor of shape `(N, 3)`
+    coords2: torch.tensor
+        A torch tensor of shape `(M, 3)`
+    Returns
+    -------
+    torch.tensor
+        A `(N,M)` array with pairwise distances.
+  """
+    "TODO: this should check the dimension"
+    return torch.sum((receptor_coords.view(1, -1, 3) - ligand_coords.view(-1, 1, 3)) ** 2, dim=-1) ** 0.5
+
+def cutoff_filter(d: torch.tensor, x: torch.tensor, cutoff=8.0) -> torch.tensor:
+    """Applies a cutoff filter on pairwise distances
+    Parameters
+    ----------
+    d: torch.tensor
+        Pairwise distances matrix. A torch tensor of shape `(N, M)`
+    x: torch.tensor
+        Matrix of shape `(N, M)`
+    cutoff: float, optional (default 8)
+        Cutoff for selection in Angstroms
+    Returns
+    -------
+    torch.tensor
+        A `(N,M)` array with values where distance is too large thresholded to 0.
+    """
+    return torch.where(d < cutoff, x, torch.zeros_like(x))
+
+def vina_nonlinearity(c: torch.tensor, w: float, Nrot: int) -> torch.tensor:
+    """Computes non-linearity used in Vina.
+    Parameters
+    ----------
+    c: torch.tensor
+        A torch tensor of shape `(N, M)`
+    w: float
+        Weighting term
+    Nrot: int
+        Number of rotatable bonds in this molecule
+    Returns
+    -------
+    torch.tensor
+        A `(N, M)` array with activations under a nonlinearity.
+    """
+    return c / (1 + w * Nrot)
+
+def vina_repulsion(d: torch.tensor) -> torch.tensor:
+    """Computes Autodock Vina's repulsion interaction term.
+    Parameters
+    ----------
+    d: torch.tensor
+        A torch tensor of shape `(N, M)`.
+    Returns
+    -------
+    torch.tensor
+        A `(N, M)` array with repulsion terms.
+    """
+    return torch.where(d < 0, d**2, torch.zeros_like(d))
+
+def vina_hydrophobic(d: torch.tensor) -> torch.tensor:
+    """Computes Autodock Vina's hydrophobic interaction term.
+    Here, d is the set of surface distances as defined in [1]_
+    Parameters
+    ----------
+    d: torch.tensor
+        A torch tensor of shape `(N, M)`.
+    Returns
+    -------
+    torch.tensor
+        A `(N, M)` array of hydrophoboic interactions in a piecewise linear curve.
+    References
+    ----------
+    .. [1] Jain, Ajay N. "Scoring noncovalent protein-ligand interactions:
+        a continuous differentiable function tuned to compute binding affinities."
+        Journal of computer-aided molecular design 10.5 (1996): 427-440.
+    """
+    return torch.where(d < 0.5, torch.ones_like(d), torch.where(d < 1.5, 1.5 - d, torch.zeros_like(d)))
+
+
+def vina_hbond(d: torch.tensor) -> torch.tensor:
+    """Computes Autodock Vina's hydrogen bond interaction term.
+    Here, d is the set of surface distances as defined in [1]_
+    Parameters
+    ----------
+    d: torch.tensor
+        A torch tensor of shape `(N, M)`.
+    Returns
+    -------
+    torch.tensor
+        A `(N, M)` array of hydrophoboic interactions in a piecewise linear curve.
+    References
+    ----------
+    .. [1] Jain, Ajay N. "Scoring noncovalent protein-ligand interactions:
+        a continuous differentiable function tuned to compute binding affinities."
+        Journal of computer-aided molecular design 10.5 (1996): 427-440.
+    """
+    return torch.where(d < -0.7, torch.ones_like(d), torch.where(d < 0, (1.0 / 0.7) * (0 - d), torch.zeros_like(d)))
+
+
+def vina_gaussian_first(d: torch.tensor) -> torch.tensor:
+    """Computes Autodock Vina's first Gaussian interaction term.
+    Here, d is the set of surface distances as defined in [1]_
+    Parameters
+    ----------
+    d: torch.tensor
+        A torch tensor of shape `(N, M)`.
+    Returns
+    -------
+    torch.tensor
+        A `(N, M)` array of gaussian interaction terms.
+    References
+    ----------
+    .. [1] Jain, Ajay N. "Scoring noncovalent protein-ligand interactions:
+        a continuous differentiable function tuned to compute binding affinities."
+        Journal of computer-aided molecular design 10.5 (1996): 427-440.
+    """
+  
+    return torch.exp(-(d / 0.5)**2)
+
+
+def vina_gaussian_second(d: torch.tensor) -> torch.tensor:
+    """Computes Autodock Vina's second Gaussian interaction term.
+    Here, d is the set of surface distances as defined in [1]_
+    Parameters
+    ----------
+    d: torch.tensor
+        A torch tensor of shape `(N, M)`.
+    Returns
+    -------
+    torch.tensor
+        A `(N, M)` array of gaussian interaction terms.
+    References
+    ----------
+    .. [1] Jain, Ajay N. "Scoring noncovalent protein-ligand interactions:
+        a continuous differentiable function tuned to compute binding affinities."
+        Journal of computer-aided molecular design 10.5 (1996): 427-440.
+    """
+    return torch.exp(-((d - 3) / 2)**2)
+
+
+def weighted_linear_sum(w: torch.tensor, x: torch.tensor) -> torch.tensor:
+    """Computes weighted linear sum.
+    Parameters
+    ----------
+    w: torch.tensor
+        A torch tensor of shape `(N,)`
+    x: torch.tensor
+        A torch tensor of shape `(N, M, L)`
+    Returns
+    -------
+    torch.tensor
+        A torch tensor of shape `(M, L)`
+    """
+    return torch.tensordot(w, x, axes=1)
+
+
+def compute_vina_energy(coords1: torch.tensor, coords2: torch.tensor,
+                     weights: torch.tensor, wrot: float, Nrot: int) -> torch.tensor:
+    """Computes the Vina Energy function for two molecular conformations
+    Parameters
+    ----------
+    coords1: torch.tensor
+        Molecular coordinates of shape `(N, 3)`
+    coords2: torch.tensor
+        Molecular coordinates of shape `(M, 3)`
+    weights: torch.tensor
+        A torch tensor of shape `(5,)`. The 5 values are weights for repulsion interaction term,
+        hydrophobic interaction term, hydrogen bond interaction term,
+        first Gaussian interaction term and second Gaussian interaction term.
+    wrot: float
+        The scaling factor for nonlinearity
+    Nrot: int
+        Number of rotatable bonds in this calculation
+    Returns
+    -------
+    torch.tensor
+        A scalar value with free energy
+    """
+  # TODO(rbharath): The autodock vina source computes surface distances
+  # which take into account the van der Waals radius of each atom type.
+    dists = pairwise_distances(coords1, coords2)
+    repulsion = vina_repulsion(dists)
+    hydrophobic = vina_hydrophobic(dists)
+    hbond = vina_hbond(dists)
+    gauss_1 = vina_gaussian_first(dists)
+    gauss_2 = vina_gaussian_second(dists)
+
+    # Shape (N, M)
+    interactions = weighted_linear_sum(weights, torch.tensor([repulsion, hydrophobic, hbond, gauss_1, gauss_2]))
+
+    # Shape (N, M)
+    thresholded = cutoff_filter(dists, interactions)
+
+    free_energies = vina_nonlinearity(thresholded, wrot, Nrot)
+    return torch.sum(free_energies)
 
 def compute_sq_dist_mat(X_1, X_2):
     '''Computes the l2 squared cost matrix between two point cloud inputs.
@@ -70,9 +269,10 @@ def compute_revised_intersection_loss(lig_coords, rec_coords, alpha = 0.2, beta=
     return distance_losses.sum()
 
 class BindingLoss(_Loss):
-    def __init__(self, ot_loss_weight=1, intersection_loss_weight=0, intersection_sigma=0, geom_reg_loss_weight=1, loss_rescale=True,
+    def __init__(self, vina_energy_loss_weight=0, ot_loss_weight=1, intersection_loss_weight=0, intersection_sigma=0, geom_reg_loss_weight=1, loss_rescale=True,
                  intersection_surface_ct=0, key_point_alignmen_loss_weight=0,revised_intersection_loss_weight=0, centroid_loss_weight=0, kabsch_rmsd_weight=0,translated_lig_kpt_ot_loss=False, revised_intersection_alpha=0.1, revised_intersection_beta=8, aggression=0) -> None:
         super(BindingLoss, self).__init__()
+        self.vina_energy_loss_weight = vina_energy_loss_weight
         self.ot_loss_weight = ot_loss_weight
         self.intersection_loss_weight = intersection_loss_weight
         self.intersection_sigma = intersection_sigma
@@ -94,6 +294,7 @@ class BindingLoss(_Loss):
         # Compute MSE loss for each protein individually, then average over the minibatch.
         ligs_coords_loss = 0
         recs_coords_loss = 0
+        vina_energy_loss = 0
         ot_loss = 0
         intersection_loss = 0
         intersection_loss_revised = 0
@@ -128,6 +329,12 @@ class BindingLoss(_Loss):
                                                                                        recs_coords[i],
                                                                                        self.intersection_sigma,
                                                                                        self.intersection_surface_ct)
+            if self.vina_energy_loss_weight > 0:
+                vina_energy_loss = vina_energy_loss + compute_vina_energy(ligs_coords_pred[i], 
+                                                                          recs_coords[i], 
+                                                                          weights=None, 
+                                                                          wrot=None, Nrot=None)
+
 
             if self.revised_intersection_loss_weight > 0:
                 intersection_loss_revised = intersection_loss_revised + compute_revised_intersection_loss(ligs_coords_pred[i],
@@ -160,8 +367,8 @@ class BindingLoss(_Loss):
             intersection_loss_revised = intersection_loss_revised / float(len(ligs_coords_pred))
             geom_reg_loss = geom_reg_loss / float(len(ligs_coords_pred))
 
-        loss = ligs_coords_loss + self.ot_loss_weight * ot_loss + self.intersection_loss_weight * intersection_loss + keypts_loss * self.key_point_alignmen_loss_weight + centroid_loss * self.centroid_loss_weight + kabsch_rmsd_loss * self.kabsch_rmsd_weight + intersection_loss_revised *self.revised_intersection_loss_weight + geom_reg_loss*self.geom_reg_loss_weight
-        return loss, {'ligs_coords_loss': ligs_coords_loss, 'recs_coords_loss': recs_coords_loss, 'ot_loss': ot_loss,
+        loss = self.vina_energy_loss_weight * vina_energy_loss + ligs_coords_loss + self.ot_loss_weight * ot_loss + self.intersection_loss_weight * intersection_loss + keypts_loss * self.key_point_alignmen_loss_weight + centroid_loss * self.centroid_loss_weight + kabsch_rmsd_loss * self.kabsch_rmsd_weight + intersection_loss_revised *self.revised_intersection_loss_weight + geom_reg_loss*self.geom_reg_loss_weight
+        return loss, {'ligs_coords_loss': ligs_coords_loss, 'recs_coords_loss': recs_coords_loss, 'ot_loss': ot_loss, 'vina_energy_loss': vina_energy_loss,
                       'intersection_loss': intersection_loss, 'keypts_loss': keypts_loss, 'centroid_loss:': centroid_loss, 'kabsch_rmsd_loss': kabsch_rmsd_loss, 'intersection_loss_revised': intersection_loss_revised, 'geom_reg_loss': geom_reg_loss}
 
 class TorsionLoss(_Loss):
