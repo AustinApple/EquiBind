@@ -128,6 +128,7 @@ class PDBBind(Dataset):
         log('loading data into memory')
         coords_dict = torch.load(os.path.join(self.processed_dir, 'pocket_and_rec_coords.pt'))
         self.pockets_coords = coords_dict['pockets_coords']
+        self.rec_coords = coords_dict['all_rec_coords']
         self.lig_graphs, _ = load_graphs(os.path.join(self.processed_dir, self.lig_graph_path))
         if self.multiple_rdkit_conformers:
             self.lig_graphs = [self.lig_graphs[i:i + self.num_confs] for i in range(0, len(self.lig_graphs), self.num_confs)]
@@ -164,6 +165,7 @@ class PDBBind(Dataset):
             else:
                 lig_graph = deepcopy(self.lig_graphs[idx])
         lig_coords = lig_graph.ndata['x']
+        rec_coords = self.rec_coords
         rec_graph = self.rec_graphs[idx]
 
         # Randomly rotate and translate the ligand.
@@ -203,7 +205,7 @@ class PDBBind(Dataset):
         if self.lig_structure_graph:
             return lig_graph.to(self.device), rec_graph.to(self.device), self.masks[idx], self.angles[idx], lig_coords, rec_graph.ndata['x'], new_pocket_coords, pocket_coords,geometry_graph, self.complex_names[idx], idx
         else:
-            return lig_graph.to(self.device), rec_graph.to(self.device), lig_coords, rec_graph.ndata['x'], new_pocket_coords, pocket_coords, geometry_graph, self.complex_names[idx], idx
+            return lig_graph.to(self.device), rec_graph.to(self.device), lig_coords, rec_coords, rec_graph.ndata['x'], new_pocket_coords, pocket_coords, geometry_graph, self.complex_names[idx], idx
 
     def process(self):
         log(f'Processing complexes from [{self.complex_names_path}] and saving it to [{self.processed_dir}]')

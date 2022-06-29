@@ -507,6 +507,7 @@ class IEGMN_Layer(nn.Module):
             else:
                 geom_loss = 0
             if self.geometry_regularization:
+                # TODO: not really understand
                 src, dst = geometry_graph.edges()
                 src = src.long()
                 dst = dst.long()

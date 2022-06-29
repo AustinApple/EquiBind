@@ -113,6 +113,11 @@ def vina_hydrophobic(d: torch.tensor) -> torch.tensor:
         Journal of computer-aided molecular design 10.5 (1996): 427-440.
     """
     return torch.where(d < 0.5, torch.ones_like(d), torch.where(d < 1.5, 1.5 - d, torch.zeros_like(d)))
+    # sigmoid
+    # return 1 / (1 + torch.exp(-4*(-1*d+1)))
+
+    
+    
 
 
 def vina_hbond(d: torch.tensor) -> torch.tensor:
@@ -133,6 +138,8 @@ def vina_hbond(d: torch.tensor) -> torch.tensor:
         Journal of computer-aided molecular design 10.5 (1996): 427-440.
     """
     return torch.where(d < -0.7, torch.ones_like(d), torch.where(d < 0, (1.0 / 0.7) * (0 - d), torch.zeros_like(d)))
+    # sigmoid
+    # return 1 / (1 + torch.exp(-6*(-1*d-0.35)))
 
 
 def vina_gaussian_first(d: torch.tensor) -> torch.tensor:
@@ -224,7 +231,7 @@ def compute_vina_energy(coords1: torch.tensor, coords2: torch.tensor,
     gauss_2 = vina_gaussian_second(dists)
 
     # Shape (N, M)
-    interactions = weighted_linear_sum(weights, torch.tensor([repulsion, hydrophobic, hbond, gauss_1, gauss_2]))
+    interactions = weighted_linear_sum(weights, torch.stack([repulsion, hydrophobic, hbond, gauss_1, gauss_2]))
 
     # Shape (N, M)
     thresholded = cutoff_filter(dists, interactions)
@@ -289,7 +296,7 @@ class BindingLoss(_Loss):
         self.geom_reg_loss_weight = geom_reg_loss_weight
         self.mse_loss = MSELoss()
 
-    def forward(self, ligs_coords, recs_coords, ligs_coords_pred, ligs_pocket_coords, recs_pocket_coords, ligs_keypts,
+    def forward(self, ligs_coords, recs_coords_all_atoms, recs_coords, ligs_coords_pred, ligs_pocket_coords, recs_pocket_coords, ligs_keypts,
                 recs_keypts, rotations, translations, geom_reg_loss, device, **kwargs):
         # Compute MSE loss for each protein individually, then average over the minibatch.
         ligs_coords_loss = 0
@@ -331,7 +338,7 @@ class BindingLoss(_Loss):
                                                                                        self.intersection_surface_ct)
             if self.vina_energy_loss_weight > 0:
                 vina_energy_loss = vina_energy_loss + compute_vina_energy(ligs_coords_pred[i], 
-                                                                          recs_coords[i], 
+                                                                          recs_coords_all_atoms[i], 
                                                                           weights=None, 
                                                                           wrot=None, Nrot=None)
 

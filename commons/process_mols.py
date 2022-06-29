@@ -566,7 +566,7 @@ def get_rec_graph(rec, rec_coords, c_alpha_coords, n_coords, c_coords, use_rec_a
                                            surface_graph_cutoff=surface_graph_cutoff,
                                            )
     else:
-        return get_calpha_graph(rec, c_alpha_coords, n_coords, c_coords, rec_radius, c_alpha_max_neighbors)
+        return get_calpha_graph(rec, rec_coords, c_alpha_coords, n_coords, c_coords, rec_radius, c_alpha_max_neighbors)
 
 
 def get_lig_graph(mol, lig_coords, radius=20, max_neighbor=None):
@@ -1062,7 +1062,7 @@ def get_hierarchical_graph(rec, rec_coords_list, c_alpha_coords, n_coords, c_coo
     return graph
 
 
-def get_calpha_graph(rec, c_alpha_coords, n_coords, c_coords, cutoff=20, max_neighbor=None):
+def get_calpha_graph(rec, rec_coords, rec_c_alpha_coords, n_coords, c_coords, cutoff=20, max_neighbor=None):
     ################## Extract 3D coordinates and n_i,u_i,v_i vectors of representative residues ################
     residue_representatives_loc_list = []
     n_i_list = []

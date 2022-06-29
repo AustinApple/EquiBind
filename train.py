@@ -122,7 +122,6 @@ def load_model(args, data_sample, device, **kwargs):
                                            **args.model_parameters, **kwargs)
     return model
 
-
 def train_wrapper(args):
     mp = args.model_parameters
     lp = args.loss_params

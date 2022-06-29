@@ -9,12 +9,13 @@ class BindingTrainer(Trainer):
         super(BindingTrainer, self).__init__(**kwargs)
 
     def forward_pass(self, batch):
-        lig_graphs, rec_graphs, ligs_coords, recs_coords, ligs_pocket_coords, recs_pocket_coords, geometry_graphs, complex_names = tuple(
+        # TODO: Here the number of term batch return is not consistent with the num of term pdbind class return.
+        lig_graphs, rec_graphs, ligs_coords, recs_coords_all_atoms, recs_coords, ligs_pocket_coords, recs_pocket_coords, geometry_graphs, complex_names = tuple(
             batch)
         ligs_coords_pred, ligs_keypts, recs_keypts, rotations, translations, geom_reg_loss = self.model(lig_graphs, rec_graphs, geometry_graphs,
                                                                                          complex_names=complex_names,
                                                                                          epoch=self.epoch)
-        loss, loss_components = self.loss_func(ligs_coords, recs_coords, ligs_coords_pred, ligs_pocket_coords,
+        loss, loss_components = self.loss_func(ligs_coords, recs_coords_all_atoms, recs_coords, ligs_coords_pred, ligs_pocket_coords,
                                                recs_pocket_coords, ligs_keypts, recs_keypts, rotations, translations, geom_reg_loss,
                                                self.device)
         return loss, loss_components, ligs_coords_pred, ligs_coords
